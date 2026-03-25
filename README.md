@@ -15,7 +15,6 @@ The project consists of three main parts:
 ---
 
 ## Project Structure
-
 project
 ├── plantServer
 │   ├── server.py
@@ -33,6 +32,7 @@ project
 │   └── README.md
 │
 └── README.md
+
 ---
 
 ## System Workflow
