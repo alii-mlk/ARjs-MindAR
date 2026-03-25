@@ -1,0 +1,187 @@
+<!doctype html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- importing aframe and mindar -->
+  <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-aframe.prod.js"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; }
+
+    #panel {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      width: 340px;
+      z-index: 99999;
+      background: rgba(0,0,0,0.55);
+      border: 2px solid rgba(255,255,255,0.25);
+      padding: 12px;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+    #roiPreview {
+      width: 100%;
+      border: 1px solid rgba(255,255,255,0.35);
+      display: block;
+      margin-top: 8px;
+    }
+    #scanBtn {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+    #result {
+      margin-top: 10px;
+      font-size: 14px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="panel">
+    <div style="font-weight:700;">MindAR Station</div>
+    <div style="opacity:0.85; font-size:13px; margin-top:4px;">
+      Show the target image. When detected, press Scan.
+    </div>
+
+    <canvas id="roiPreview" width="320" height="180"></canvas>
+
+    <button id="scanBtn" disabled>Scan Leaf Area</button>
+    <div id="result">Result: -</div>
+  </div>
+
+  <a-scene
+    mindar-image="imageTargetSrc: ./targets.mind;"
+    color-space="sRGB"
+    renderer="colorManagement: true, physicallyCorrectLights"
+    vr-mode-ui="enabled: false"
+    device-orientation-permission-ui="enabled: false"
+  >
+    <a-camera position="0 0 0" look-controls="enabled: false"></a-camera>
+
+    <!-- This entity becomes "visible" when targetIndex 0 is detected -->
+    <a-entity id="target0" mindar-image-target="targetIndex: 0">
+      <!-- optional: visual feedback -->
+      <a-plane color="#00ff00" opacity="0.25" position="0 0 0" height="0.6" width="1"></a-plane>
+    </a-entity>
+  </a-scene>
+
+  <script>
+    // ===== CONFIG =====
+    const API_URL = "http://localhost:8000/predict"; // phone: http://YOUR_LAPTOP_IP:8000/predict
+
+    // ROI under the printed header in the camera frame (relative to frame)
+    // Tune if needed:
+    const ROI = { x: 0.20, y: 0.55, w: 0.60, h: 0.35 };
+
+    const scanBtn = document.getElementById("scanBtn");
+    const resultEl = document.getElementById("result");
+    const preview = document.getElementById("roiPreview");
+    const pctx = preview.getContext("2d");
+
+    const target0 = document.getElementById("target0");
+
+    let targetFound = false;
+
+    // MindAR: the entity toggles visibility; we can listen for A-Frame events
+    target0.addEventListener("targetFound", () => {
+      targetFound = true;
+      scanBtn.disabled = false;
+      resultEl.textContent = "Result: Target detected ✅. Press Scan.";
+      console.log("[MindAR] targetFound");
+    });
+
+    target0.addEventListener("targetLost", () => {
+      targetFound = false;
+      scanBtn.disabled = true;
+      resultEl.textContent = "Result: Target lost. Show target image again.";
+      console.log("[MindAR] targetLost");
+    });
+
+    function getVideo() {
+      // MindAR uses a <video> element too
+      return document.querySelector("video");
+    }
+
+    function drawRoiToPreview(video) {
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) return null;
+
+      const sx = Math.floor(vw * ROI.x);
+      const sy = Math.floor(vh * ROI.y);
+      const sw = Math.floor(vw * ROI.w);
+      const sh = Math.floor(vh * ROI.h);
+
+      pctx.drawImage(video, sx, sy, sw, sh, 0, 0, preview.width, preview.height);
+      return { sx, sy, sw, sh, vw, vh };
+    }
+
+    async function sendPreviewToServer() {
+      const blob = await new Promise((resolve) => preview.toBlob(resolve, "image/jpeg", 0.85));
+      if (!blob) throw new Error("Failed to create JPEG blob from ROI preview.");
+
+      const formData = new FormData();
+      formData.append("file", blob, "leaf_roi.jpg");
+
+      const res = await fetch(API_URL, { method: "POST", body: formData });
+      return await res.json();
+    }
+
+    async function scanOnce() {
+      console.log("[scanOnce] clicked. targetFound =", targetFound);
+
+      if (!targetFound) {
+        resultEl.textContent = "Result: Target not detected yet.";
+        return;
+      }
+
+      const video = getVideo();
+      if (!video || video.readyState < 2) {
+        resultEl.textContent = "Result: Camera not ready yet.";
+        return;
+      }
+
+      const info = drawRoiToPreview(video);
+      if (!info) {
+        resultEl.textContent = "Result: Could not read video size.";
+        return;
+      }
+
+      resultEl.textContent = "Result: Sending ROI to server...";
+      try {
+        const data = await sendPreviewToServer();
+
+        if (!data.found) {
+          resultEl.textContent = `Result: Server error: ${data.error || "unknown"}`;
+          return;
+        }
+
+        const score = Number(data.severity_score);
+        const scoreText = Number.isFinite(score) ? score.toFixed(2) : String(data.severity_score);
+
+        resultEl.textContent = `Result: ${data.category} | severity_score = ${scoreText}`;
+        console.log("[scan] response:", data);
+      } catch (e) {
+        resultEl.textContent = `Result: Request failed: ${String(e)}`;
+        console.warn(e);
+      }
+    }
+
+    scanBtn.addEventListener("click", scanOnce);
+
+    // Optional: update preview continuously while target is found
+    setInterval(() => {
+      if (!targetFound) return;
+      const v = getVideo();
+      if (!v || v.readyState < 2) return;
+      drawRoiToPreview(v);
+    }, 150);
+  </script>
+</body>
+</html>

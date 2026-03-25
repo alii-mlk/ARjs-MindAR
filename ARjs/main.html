@@ -1,0 +1,237 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<!-- importing aframe and ar.js -->
+  <script src="https://aframe.io/releases/1.4.1/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
+
+    .arjs-loader {
+      height: 100%;
+      width: 100%;
+      position: absolute;
+      top: 0;
+      left: 0;
+      background-color: rgba(0, 0, 0, 0.8);
+      z-index: 9999;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      font-family: Arial, sans-serif;
+      font-size: 18px;
+    }
+
+    #panel {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      width: 340px;
+      z-index: 10000;
+      background: rgba(0, 0, 0, 0.55);
+      border: 2px solid rgba(255, 255, 255, 0.25);
+      padding: 12px;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    #roiPreview {
+      width: 100%;
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      display: block;
+      margin-top: 8px;
+    }
+
+    #scanBtn {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      cursor: pointer;
+    }
+
+    #result {
+      margin-top: 10px;
+      font-size: 14px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="arjs-loader" id="loader">Loading NFT anchor…</div>
+
+  <!-- UI overlay for the user to see the result -->
+  <div id="panel">
+    <div style="font-weight:700;">PUT YOUR PLANT HERE</div>
+    <div style="opacity:0.85; font-size:13px; margin-top:4px;">
+      When the anchor is detected, press Scan.
+    </div>
+
+    <canvas id="roiPreview" width="320" height="180"></canvas>
+
+    <button id="scanBtn" disabled>Scan Leaf Area</button>
+    <div id="result">Result: -</div>
+  </div>
+
+  <!-- AR Scene -->
+  <a-scene vr-mode-ui="enabled: false" embedded renderer="logarithmicDepthBuffer: true;"
+    arjs="trackingMethod: best; sourceType: webcam; debugUIEnabled: false;">
+    <!-- ✅ YOUR LOCAL NFT ANCHOR (no extension) -->
+    <a-nft id="anchor" type="nft" url="./anchor" smooth="true" smoothCount="10" smoothTolerance=".01"
+      smoothThreshold="5">
+    </a-nft>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+
+  <script>
+    // ===== CONFIG =====
+    const API_URL = "http://127.0.0.1:8000/predict"; // if phone: use http://YOUR_PC_IP:8000/predict
+
+    // ROI under anchor (relative to full camera frame)
+    // You can tune these numbers later.
+    const ROI = {
+      x: 0.20,   // start 20% from left
+      y: 0.55,   // start 55% from top  (below the anchor/header)
+      w: 0.60,   // 60% of frame width
+      h: 0.35    // 35% of frame height
+    };
+
+    const loader = document.getElementById("loader");
+    const scanBtn = document.getElementById("scanBtn");
+    const resultEl = document.getElementById("result");
+    const preview = document.getElementById("roiPreview");
+    const pctx = preview.getContext("2d");
+
+    const anchorEl = document.getElementById("anchor");
+
+    let markerIsFound = false;
+
+    // Wait for markerFound or markerLost events
+    anchorEl.addEventListener("markerFound", () => {
+      markerIsFound = true;
+      loader.style.display = "none";
+      scanBtn.disabled = false;
+      resultEl.textContent = "Result: Anchor detected ✅. Press Scan.";
+      console.log("[AR.js] markerFound");
+    });
+
+    anchorEl.addEventListener("markerLost", () => {
+      markerIsFound = false;
+      scanBtn.disabled = true;
+      resultEl.textContent = "Result: Anchor lost. Point camera at the printed header.";
+      console.log("[AR.js] markerLost");
+    });
+
+    function getVideo() {
+      return document.querySelector("video");
+    }
+
+    function drawRoiToPreview(video) {
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) return null;
+
+      const sx = Math.floor(vw * ROI.x);
+      const sy = Math.floor(vh * ROI.y);
+      const sw = Math.floor(vw * ROI.w);
+      const sh = Math.floor(vh * ROI.h);
+
+      // draw the ROI crop into preview canvas
+      pctx.drawImage(video, sx, sy, sw, sh, 0, 0, preview.width, preview.height);
+
+      return { sx, sy, sw, sh, vw, vh };
+    }
+
+    async function sendPreviewToServer() {
+      const blob = await new Promise((resolve) => preview.toBlob(resolve, "image/jpeg", 0.85));
+      if (!blob) throw new Error("Failed to create JPEG blob from ROI preview.");
+
+      const formData = new FormData();
+      formData.append("file", blob, "leaf_roi.jpg");
+
+      const res = await fetch(API_URL, { method: "POST", body: formData });
+
+      return await res.json();
+    }
+
+    async function scanOnce() {
+      console.log("[scanOnce] clicked. markerIsFound =", markerIsFound);
+      if (!markerIsFound) {
+        resultEl.textContent = "Result: Anchor not detected yet.";
+        return;
+      }
+
+      const video = getVideo();
+      if (!video || video.readyState < 2) {
+        resultEl.textContent = "Result: Camera not ready yet.";
+        return;
+      }
+
+      // 1) crop ROI under anchor into preview
+      const info = drawRoiToPreview(video);
+      console.log("[scanOnce] ROI crop pixels =", info);
+
+      if (!info) {
+        resultEl.textContent = "Result: Could not read video size.";
+        return;
+      }
+
+      // 2) send to backend
+      resultEl.textContent = "Result: Sending ROI to server...";
+      try {
+        const data = await sendPreviewToServer();
+        console.log("[sendPreviewToServer] sending to", API_URL);
+
+        if (!data.found) {
+          resultEl.textContent = `Result: Server error: ${data.error || "unknown"}`;
+          return;
+        }
+
+        console.log("[sendPreviewToServer] status =", data.status);
+        const score = Number(data.severity_score);
+        const scoreText = Number.isFinite(score) ? score.toFixed(2) : String(data.severity_score);
+
+        resultEl.textContent =
+          `Result: ${data.category}  |  severity_score = ${scoreText}`;
+
+        console.log("[scan] response:", data);
+      } catch (e) {
+        resultEl.textContent = `Result: Request failed: ${String(e)}`;
+        console.warn(e);
+      }
+    }
+
+    scanBtn.addEventListener("click", scanOnce);
+
+    // live update preview while anchor is found
+    setInterval(() => {
+      if (!markerIsFound) return;
+      const v = getVideo();
+      if (!v || v.readyState < 2) return;
+      drawRoiToPreview(v);
+    }, 150);
+    anchorEl.addEventListener("markerFound", () => {
+      console.log("[AR.js] markerFound fired");
+    });
+
+    anchorEl.addEventListener("markerLost", () => {
+      console.log("[AR.js] markerLost fired");
+    });
+
+    // Also log once to confirm element exists
+    console.log("anchorEl exists?", !!anchorEl);
+
+  </script>
+</body>
+
+</html>
