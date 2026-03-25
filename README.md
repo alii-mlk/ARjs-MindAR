@@ -16,21 +16,36 @@ The project consists of three main parts:
 
 ## Project Structure
 project
-├── plantServer \n
+├── plantServer
+
 │   ├── server.py
+
 │   ├── predict.py
+
 │   ├── requirements.txt
+
 │   └── README.md
+
 │
+
 ├── MindAR
+
 │   ├── main.html
+
 │   ├── targets.mind
+
 │   └── README.md
+
 │
+
 ├── ARjs
+
 │   ├── index.html
+
 │   └── README.md
+
 │
+
 └── README.md
 
 ---
