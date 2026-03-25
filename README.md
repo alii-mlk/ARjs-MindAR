@@ -15,6 +15,7 @@ The project consists of three main parts:
 ---
 
 ## Project Structure
+
 project
 ├── plantServer
 │   ├── server.py
