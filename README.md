@@ -15,13 +15,23 @@ The project consists of three main parts:
 ---
 
 ## Project Structure
-project/
+project
+├── plantServer
+│   ├── server.py
+│   ├── predict.py
+│   ├── requirements.txt
+│   └── README.md
 │
-├── plantServer/      → FastAPI server and plant health prediction model
-├── MindAR/       → WebAR frontend implemented with MindAR
-├── ARjs/         → WebAR frontend implemented with AR.js
-└── README.md     → Main project documentation
-
+├── MindAR
+│   ├── main.html
+│   ├── targets.mind
+│   └── README.md
+│
+├── ARjs
+│   ├── index.html
+│   └── README.md
+│
+└── README.md
 ---
 
 ## System Workflow
