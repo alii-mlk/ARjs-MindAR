@@ -16,7 +16,7 @@ The project consists of three main parts:
 
 ## Project Structure
 project
-├── plantServer
+├── plantServer \n
 │   ├── server.py
 │   ├── predict.py
 │   ├── requirements.txt
