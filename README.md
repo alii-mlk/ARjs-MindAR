@@ -13,41 +13,24 @@ The project consists of three main parts:
 3. AR.js frontend
 
 ---
-
 ## Project Structure
 project
 ├── plantServer
-
 │   ├── server.py
-
 │   ├── predict.py
-
 │   ├── requirements.txt
-
 │   └── README.md
-
 │
-
 ├── MindAR
-
 │   ├── main.html
-
 │   ├── targets.mind
-
 │   └── README.md
-
 │
-
 ├── ARjs
-
 │   ├── index.html
-
 │   └── README.md
-
 │
-
 └── README.md
-
 ---
 
 ## System Workflow
